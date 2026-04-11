@@ -1,0 +1,16 @@
+name: Monthly Repo Review
+
+on:
+  schedule:
+    - cron: "0 3 1 * *"
+  workflow_dispatch:
+
+jobs:
+  run:
+    uses: ./.github/workflows/manual.yml
+    with:
+      command: run
+      mode: monthly
+      scope: all
+      kind: rankings
+    secrets: inherit
