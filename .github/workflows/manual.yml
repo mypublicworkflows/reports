@@ -140,12 +140,36 @@ jobs:
         run: |
           COMMAND="${{ inputs.command }}"
           MODE="${{ inputs.mode }}"
-          SCOPE="${{ inputs.scope }}"
-          SCOPE_VALUE="${{ inputs.scope_value }}"
-          PERIOD_LABEL="${{ inputs.period_label }}"
+          SCOPE_INPUT="${{ inputs.scope }}"
+          SCOPE_VALUE_INPUT="${{ inputs.scope_value }}"
+          DEFAULT_SCOPE="${{ vars.WORKFLOW_TARGET_SCOPE }}"
+          DEFAULT_SCOPE_VALUE="${{ vars.WORKFLOW_TARGET_SCOPE_VALUE }}"
+          DEFAULT_PERIOD_LABEL="${{ vars.WORKFLOW_TARGET_PERIOD_LABEL }}"
+          DEFAULT_DATE_BASIS="${{ vars.WORKFLOW_TARGET_DATE_BASIS }}"
           START="${{ inputs.start }}"
           END="${{ inputs.end }}"
+          PERIOD_LABEL_INPUT="${{ inputs.period_label }}"
           KIND="${{ inputs.kind }}"
+
+          SCOPE="$SCOPE_INPUT"
+          if [ "$SCOPE_INPUT" = "all" ] && [ -z "$SCOPE_VALUE_INPUT" ] && [ -n "$DEFAULT_SCOPE" ]; then
+            SCOPE="$DEFAULT_SCOPE"
+          fi
+
+          SCOPE_VALUE="$SCOPE_VALUE_INPUT"
+          if [ -z "$SCOPE_VALUE" ] && [ -n "$DEFAULT_SCOPE_VALUE" ]; then
+            SCOPE_VALUE="$DEFAULT_SCOPE_VALUE"
+          fi
+
+          PERIOD_LABEL="$PERIOD_LABEL_INPUT"
+          if [ -z "$PERIOD_LABEL" ] && [ "$MODE" != "custom" ] && [ -n "$DEFAULT_PERIOD_LABEL" ]; then
+            PERIOD_LABEL="$DEFAULT_PERIOD_LABEL"
+          fi
+
+          DATE_BASIS="$DEFAULT_DATE_BASIS"
+          if [ -z "$DATE_BASIS" ]; then
+            DATE_BASIS="authored_date"
+          fi
 
           case "$COMMAND" in
             run|preview|publish) ;;
@@ -184,6 +208,149 @@ jobs:
               exit 1
               ;;
           esac
+
+          echo "EFFECTIVE_MODE=$MODE" >> "$GITHUB_ENV"
+          echo "EFFECTIVE_SCOPE=$SCOPE" >> "$GITHUB_ENV"
+          echo "EFFECTIVE_SCOPE_VALUE=$SCOPE_VALUE" >> "$GITHUB_ENV"
+          echo "EFFECTIVE_PERIOD_LABEL=$PERIOD_LABEL" >> "$GITHUB_ENV"
+          echo "EFFECTIVE_START=$START" >> "$GITHUB_ENV"
+          echo "EFFECTIVE_END=$END" >> "$GITHUB_ENV"
+          echo "EFFECTIVE_DATE_BASIS=$DATE_BASIS" >> "$GITHUB_ENV"
+      - name: Generate workflow config
+        shell: bash
+        env:
+          GITLAB_URL: ${{ secrets.GITLAB_URL }}
+          SMTP_PORT: ${{ vars.SMTP_PORT }}
+          SMTP_STARTTLS: ${{ vars.SMTP_STARTTLS }}
+          SMTP_SSL: ${{ vars.SMTP_SSL }}
+          WORKFLOW_LLM_ENABLED: ${{ vars.WORKFLOW_LLM_ENABLED }}
+          WORKFLOW_WORDPRESS_ENABLED: ${{ vars.WORKFLOW_WORDPRESS_ENABLED }}
+          WORKFLOW_WORDPRESS_PREVIEW_ONLY: ${{ vars.WORKFLOW_WORDPRESS_PREVIEW_ONLY }}
+          WORKFLOW_WORDPRESS_DEFAULT_STATUS: ${{ vars.WORKFLOW_WORDPRESS_DEFAULT_STATUS }}
+          WORKFLOW_SMTP_ENABLED: ${{ vars.WORKFLOW_SMTP_ENABLED }}
+        run: |
+          export WORKFLOW_CONFIG_PATH="$RUNNER_TEMP/repo-review-actions.yaml"
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import yaml
+
+          def as_bool(name: str, default: bool) -> bool:
+              value = os.getenv(name, "").strip().lower()
+              if not value:
+                  return default
+              return value in {"1", "true", "yes", "on"}
+
+          def as_int(name: str, default: int) -> int:
+              value = os.getenv(name, "").strip()
+              if not value:
+                  return default
+              return int(value)
+
+          data = {
+              "gitlab": {
+                  "base_url": os.getenv("GITLAB_URL", "").strip() or None,
+                  "pat_env": "GITLAB_PAT",
+                  "include_merge_requests": True,
+              },
+              "target": {
+                  "mode": os.getenv("EFFECTIVE_MODE", "monthly"),
+                  "scope": os.getenv("EFFECTIVE_SCOPE", "all"),
+                  "scope_value": os.getenv("EFFECTIVE_SCOPE_VALUE", "").strip() or None,
+                  "period_label": os.getenv("EFFECTIVE_PERIOD_LABEL", "").strip() or None,
+                  "period": {
+                      "start": os.getenv("EFFECTIVE_START", "").strip() or None,
+                      "end": os.getenv("EFFECTIVE_END", "").strip() or None,
+                  },
+              },
+              "analysis": {
+                  "default_date_basis": os.getenv("EFFECTIVE_DATE_BASIS", "authored_date"),
+                  "default_timezone": "Asia/Karachi",
+                  "category_detection": "hybrid",
+                  "classify_unknown_as": "automation_script",
+                  "weights_profile": "default",
+                  "include_mr_analysis": True,
+                  "include_repo_snapshot_analysis": True,
+                  "max_run_seconds": 0,
+                  "max_project_seconds": 0,
+                  "max_semantic_review_seconds": 0,
+              },
+              "reports": {
+                  "output_dir": "artifacts",
+                  "save_html": True,
+                  "save_json": True,
+                  "save_csv": True,
+                  "include_confidence_notes": True,
+                  "include_fairness_notes": True,
+              },
+              "rankings": {
+                  "enable_overall": True,
+                  "enable_category": True,
+                  "enable_improvement": True,
+                  "enable_watchlist": True,
+              },
+              "wordpress": {
+                  "enabled": as_bool("WORKFLOW_WORDPRESS_ENABLED", False),
+                  "email_target_env": "WORDPRESS_POST_EMAIL",
+                  "default_status": os.getenv("WORKFLOW_WORDPRESS_DEFAULT_STATUS", "").strip() or "private",
+                  "preview_only": as_bool("WORKFLOW_WORDPRESS_PREVIEW_ONLY", True),
+                  "default_publish_report_types": [
+                      "executive_summary",
+                      "group_summary",
+                      "rankings_report",
+                  ],
+                  "category_by_report_type": {
+                      "contributor_report": "Contributor Review",
+                      "repository_report": "Repository Report",
+                      "group_summary": "Monthly Report",
+                      "executive_summary": "Executive Summary",
+                      "rankings_report": "Rankings",
+                  },
+              },
+              "smtp": {
+                  "enabled": as_bool("WORKFLOW_SMTP_ENABLED", True),
+                  "host_env": "SMTP_HOST",
+                  "port_env": "SMTP_PORT",
+                  "username_env": "SMTP_USERNAME",
+                  "password_env": "SMTP_PASSWORD",
+                  "from_env": "SMTP_FROM",
+                  "from_name_env": "SMTP_FROM_NAME",
+                  "starttls_env": "SMTP_STARTTLS",
+                  "ssl_env": "SMTP_SSL",
+                  "default_port": as_int("SMTP_PORT", 587),
+                  "default_starttls": as_bool("SMTP_STARTTLS", True),
+                  "default_ssl": as_bool("SMTP_SSL", False),
+              },
+              "resend": {
+                  "enabled": False,
+              },
+              "mailjet": {
+                  "enabled": False,
+              },
+              "llm": {
+                  "enabled": as_bool("WORKFLOW_LLM_ENABLED", False),
+                  "provider": "professionalize",
+                  "base_url_env": "PROFESSIONALIZE_BASE_URL",
+                  "api_key_env": "PROFESSIONALIZE_API_KEY",
+                  "model_env": "PROFESSIONALIZE_LLM_MODEL",
+              },
+              "embeddings": {
+                  "enabled": False,
+                  "provider": "professionalize",
+                  "base_url_env": "PROFESSIONALIZE_BASE_URL",
+                  "api_key_env": "PROFESSIONALIZE_API_KEY",
+                  "model_env": "PROFESSIONALIZE_EMBEDDING_MODEL",
+              },
+              "storage": {
+                  "database_url": "sqlite:///repo_review.db",
+              },
+          }
+
+          output_path = Path(os.environ["WORKFLOW_CONFIG_PATH"])
+          output_path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+          print(f"Generated workflow config at {output_path}")
+          PY
+          echo "WORKFLOW_CONFIG_PATH=$WORKFLOW_CONFIG_PATH" >> "$GITHUB_ENV"
       - name: Run repo review agent
         shell: bash
         env:
@@ -206,15 +373,16 @@ jobs:
           cd "$APP_DIR"
           COMMAND="${{ inputs.command }}"
           if [ "$COMMAND" = "run" ]; then
-            CMD="python -m repo_review run ${{ inputs.mode }} --config config.yaml --scope '${{ inputs.scope }}'"
+            CMD="python -m repo_review run $EFFECTIVE_MODE --config '$WORKFLOW_CONFIG_PATH' --scope '$EFFECTIVE_SCOPE'"
           else
-            CMD="python -m repo_review $COMMAND ${{ inputs.kind }} --config config.yaml --scope '${{ inputs.scope }}'"
+            CMD="python -m repo_review $COMMAND ${{ inputs.kind }} --config '$WORKFLOW_CONFIG_PATH' --scope '$EFFECTIVE_SCOPE'"
           fi
 
-          if [ -n "${{ inputs.scope_value }}" ]; then CMD="$CMD --scope-value '${{ inputs.scope_value }}'"; fi
-          if [ -n "${{ inputs.period_label }}" ]; then CMD="$CMD --period '${{ inputs.period_label }}'"; fi
-          if [ -n "${{ inputs.start }}" ]; then CMD="$CMD --start '${{ inputs.start }}'"; fi
-          if [ -n "${{ inputs.end }}" ]; then CMD="$CMD --end '${{ inputs.end }}'"; fi
+          if [ -n "$EFFECTIVE_SCOPE_VALUE" ]; then CMD="$CMD --scope-value '$EFFECTIVE_SCOPE_VALUE'"; fi
+          if [ -n "$EFFECTIVE_PERIOD_LABEL" ]; then CMD="$CMD --period '$EFFECTIVE_PERIOD_LABEL'"; fi
+          if [ -n "$EFFECTIVE_START" ]; then CMD="$CMD --start '$EFFECTIVE_START'"; fi
+          if [ -n "$EFFECTIVE_END" ]; then CMD="$CMD --end '$EFFECTIVE_END'"; fi
+          if [ -n "$EFFECTIVE_DATE_BASIS" ]; then CMD="$CMD --date-basis '$EFFECTIVE_DATE_BASIS'"; fi
 
           echo "Executing: $CMD"
           eval "$CMD"
