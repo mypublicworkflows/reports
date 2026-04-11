@@ -1,0 +1,228 @@
+name: Repo Review Agent
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "Workflow action: run generates artifacts, preview builds WordPress email bodies, publish sends through the configured backend"
+        required: true
+        default: run
+        type: choice
+        options:
+          - run
+          - preview
+          - publish
+      mode:
+        description: "Run mode: monthly | quarterly | semiannual | custom"
+        required: true
+        default: monthly
+        type: choice
+        options:
+          - monthly
+          - quarterly
+          - semiannual
+          - custom
+      scope:
+        description: "Scope: all | super-group | group | subgroup | repo"
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - super-group
+          - group
+          - subgroup
+          - repo
+      scope_value:
+        description: "Scope value examples: sialkot | sialkot/lahore-aspose | sialkot/lahore-aspose/team | sialkot/lahore-aspose/team/repo"
+        required: false
+        type: string
+      period_label:
+        description: "Optional exact period label for non-custom runs. Examples: 2026-03, 2026-q1, 2026-h1"
+        required: false
+        type: string
+      start:
+        description: "Custom start date. Format: YYYY-MM-DD. Example: 2026-01-01"
+        required: false
+        type: string
+      end:
+        description: "Custom end date. Format: YYYY-MM-DD. Example: 2026-03-31"
+        required: false
+        type: string
+      kind:
+        description: "Report kind used for preview or publish. Ignored when command is run."
+        required: true
+        default: rankings
+        type: choice
+        options:
+          - rankings
+          - group
+          - executive
+          - repo
+          - contributor
+  workflow_call:
+    inputs:
+      command:
+        required: true
+        type: string
+      mode:
+        required: true
+        type: string
+      scope:
+        required: true
+        type: string
+      scope_value:
+        required: false
+        type: string
+      period_label:
+        required: false
+        type: string
+      start:
+        required: false
+        type: string
+      end:
+        required: false
+        type: string
+      kind:
+        required: false
+        type: string
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout source repository
+        if: ${{ vars.SOURCE_REPO != '' && vars.SOURCE_REPO != github.repository && vars.SOURCE_REPO_REF == '' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.SOURCE_REPO }}
+          token: ${{ secrets.SOURCE_REPO_PAT }}
+          path: source-repo
+      - name: Checkout source repository at explicit ref
+        if: ${{ vars.SOURCE_REPO != '' && vars.SOURCE_REPO != github.repository && vars.SOURCE_REPO_REF != '' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.SOURCE_REPO }}
+          ref: ${{ vars.SOURCE_REPO_REF }}
+          token: ${{ secrets.SOURCE_REPO_PAT }}
+          path: source-repo
+      - name: Resolve app directory
+        shell: bash
+        env:
+          SOURCE_REPO_PAT: ${{ secrets.SOURCE_REPO_PAT }}
+        run: |
+          APP_DIR="."
+          if [ -n "${{ vars.SOURCE_REPO }}" ] && [ "${{ vars.SOURCE_REPO }}" != "${{ github.repository }}" ]; then
+            if [ -z "$SOURCE_REPO_PAT" ]; then
+              echo "SOURCE_REPO_PAT must be configured when SOURCE_REPO points to a different repository."
+              exit 1
+            fi
+            APP_DIR="source-repo"
+          fi
+          if [ ! -f "$APP_DIR/pyproject.toml" ]; then
+            echo "No repo-review source tree was found in $APP_DIR."
+            echo "If this workflow runs from a public orchestration repo, set SOURCE_REPO and SOURCE_REPO_PAT first."
+            exit 1
+          fi
+          echo "APP_DIR=$APP_DIR" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install package
+        shell: bash
+        run: |
+          cd "$APP_DIR"
+          python -m pip install -e .[dev]
+      - name: Validate workflow inputs
+        shell: bash
+        run: |
+          COMMAND="${{ inputs.command }}"
+          MODE="${{ inputs.mode }}"
+          SCOPE="${{ inputs.scope }}"
+          SCOPE_VALUE="${{ inputs.scope_value }}"
+          PERIOD_LABEL="${{ inputs.period_label }}"
+          START="${{ inputs.start }}"
+          END="${{ inputs.end }}"
+          KIND="${{ inputs.kind }}"
+
+          case "$COMMAND" in
+            run|preview|publish) ;;
+            *)
+              echo "command must be one of: run, preview, publish."
+              exit 1
+              ;;
+          esac
+
+          if [ "$SCOPE" != "all" ] && [ -z "$SCOPE_VALUE" ]; then
+            echo "scope_value is required when scope is not 'all'."
+            exit 1
+          fi
+
+          if [ "$MODE" = "custom" ]; then
+            if [ -z "$START" ] || [ -z "$END" ]; then
+              echo "custom mode requires both start and end in YYYY-MM-DD format."
+              exit 1
+            fi
+          fi
+
+          if [ "$MODE" != "custom" ] && { [ -n "$START" ] || [ -n "$END" ]; }; then
+            echo "start/end are only used when mode is custom."
+            exit 1
+          fi
+
+          if [ "$MODE" = "custom" ] && [ -n "$PERIOD_LABEL" ]; then
+            echo "period_label should not be used when mode is custom."
+            exit 1
+          fi
+
+          case "$KIND" in
+            rankings|group|executive|repo|contributor|"") ;;
+            *)
+              echo "kind must be one of: rankings, group, executive, repo, contributor."
+              exit 1
+              ;;
+          esac
+      - name: Run repo review agent
+        shell: bash
+        env:
+          GITLAB_URL: ${{ secrets.GITLAB_URL }}
+          GITLAB_PAT: ${{ secrets.GITLAB_PAT }}
+          WORDPRESS_POST_EMAIL: ${{ secrets.WORDPRESS_POST_EMAIL }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ vars.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM: ${{ vars.SMTP_FROM }}
+          SMTP_FROM_NAME: ${{ vars.SMTP_FROM_NAME }}
+          SMTP_STARTTLS: ${{ vars.SMTP_STARTTLS }}
+          SMTP_SSL: ${{ vars.SMTP_SSL }}
+          PROFESSIONALIZE_API_KEY: ${{ secrets.PROFESSIONALIZE_API_KEY }}
+          PROFESSIONALIZE_BASE_URL: ${{ secrets.PROFESSIONALIZE_BASE_URL }}
+          PROFESSIONALIZE_LLM_MODEL: ${{ vars.PROFESSIONALIZE_LLM_MODEL }}
+          PROFESSIONALIZE_EMBEDDING_MODEL: ${{ vars.PROFESSIONALIZE_EMBEDDING_MODEL }}
+        run: |
+          cd "$APP_DIR"
+          COMMAND="${{ inputs.command }}"
+          if [ "$COMMAND" = "run" ]; then
+            CMD="python -m repo_review run ${{ inputs.mode }} --config config.yaml --scope '${{ inputs.scope }}'"
+          else
+            CMD="python -m repo_review $COMMAND ${{ inputs.kind }} --config config.yaml --scope '${{ inputs.scope }}'"
+          fi
+
+          if [ -n "${{ inputs.scope_value }}" ]; then CMD="$CMD --scope-value '${{ inputs.scope_value }}'"; fi
+          if [ -n "${{ inputs.period_label }}" ]; then CMD="$CMD --period '${{ inputs.period_label }}'"; fi
+          if [ -n "${{ inputs.start }}" ]; then CMD="$CMD --start '${{ inputs.start }}'"; fi
+          if [ -n "${{ inputs.end }}" ]; then CMD="$CMD --end '${{ inputs.end }}'"; fi
+
+          echo "Executing: $CMD"
+          eval "$CMD"
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: repo-review-artifacts
+          path: |
+            artifacts/
+            source-repo/artifacts/
