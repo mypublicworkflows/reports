@@ -4,13 +4,50 @@ on:
   schedule:
     - cron: "0 3 1 1,4,7,10 *"
   workflow_dispatch:
+    inputs:
+      command:
+        description: "Workflow action override for manual dispatch"
+        required: true
+        default: run
+        type: choice
+        options:
+          - run
+          - preview
+          - publish
+      scope:
+        description: "Scope override for manual dispatch"
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - super-group
+          - group
+          - subgroup
+          - repo
+      scope_value:
+        description: "Scope value for non-all scopes during manual dispatch"
+        required: false
+        type: string
+      kind:
+        description: "Report kind for preview or publish during manual dispatch"
+        required: true
+        default: rankings
+        type: choice
+        options:
+          - rankings
+          - group
+          - executive
+          - repo
+          - contributor
 
 jobs:
   run:
     uses: ./.github/workflows/manual.yml
     with:
-      command: run
+      command: ${{ github.event_name == 'workflow_dispatch' && inputs.command || 'run' }}
       mode: quarterly
-      scope: all
-      kind: rankings
+      scope: ${{ github.event_name == 'workflow_dispatch' && inputs.scope || 'all' }}
+      scope_value: ${{ github.event_name == 'workflow_dispatch' && inputs.scope_value || '' }}
+      kind: ${{ github.event_name == 'workflow_dispatch' && inputs.kind || 'rankings' }}
     secrets: inherit
