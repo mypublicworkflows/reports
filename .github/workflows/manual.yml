@@ -223,6 +223,7 @@ jobs:
           SMTP_PORT: ${{ vars.SMTP_PORT }}
           SMTP_STARTTLS: ${{ vars.SMTP_STARTTLS }}
           SMTP_SSL: ${{ vars.SMTP_SSL }}
+          WORKFLOW_PUBLISHING_BACKEND: ${{ vars.WORKFLOW_PUBLISHING_BACKEND }}
           WORKFLOW_LLM_ENABLED: ${{ vars.WORKFLOW_LLM_ENABLED }}
           WORKFLOW_WORDPRESS_ENABLED: ${{ vars.WORKFLOW_WORDPRESS_ENABLED }}
           WORKFLOW_WORDPRESS_PREVIEW_ONLY: ${{ vars.WORKFLOW_WORDPRESS_PREVIEW_ONLY }}
@@ -289,6 +290,9 @@ jobs:
                   "enable_improvement": True,
                   "enable_watchlist": True,
               },
+              "publishing": {
+                  "backend": os.getenv("WORKFLOW_PUBLISHING_BACKEND", "").strip() or "wordpress_email",
+              },
               "wordpress": {
                   "enabled": as_bool("WORKFLOW_WORDPRESS_ENABLED", False),
                   "email_target_env": "WORDPRESS_POST_EMAIL",
@@ -306,6 +310,16 @@ jobs:
                       "executive_summary": "Executive Summary",
                       "rankings_report": "Rankings",
                   },
+              },
+              "wordpress_api": {
+                  "enabled": True,
+                  "site_env": "WORDPRESS_API_SITE",
+                  "access_token_env": "WORDPRESS_API_ACCESS_TOKEN",
+                  "client_id_env": "WORDPRESS_API_CLIENT_ID",
+                  "client_secret_env": "WORDPRESS_API_CLIENT_SECRET",
+                  "username_env": "WORDPRESS_API_USERNAME",
+                  "password_env": "WORDPRESS_API_PASSWORD",
+                  "update_by_slug": True,
               },
               "smtp": {
                   "enabled": as_bool("WORKFLOW_SMTP_ENABLED", True),
@@ -357,6 +371,12 @@ jobs:
           GITLAB_URL: ${{ secrets.GITLAB_URL }}
           GITLAB_PAT: ${{ secrets.GITLAB_PAT }}
           WORDPRESS_POST_EMAIL: ${{ secrets.WORDPRESS_POST_EMAIL }}
+          WORDPRESS_API_SITE: ${{ secrets.WORDPRESS_API_SITE }}
+          WORDPRESS_API_ACCESS_TOKEN: ${{ secrets.WORDPRESS_API_ACCESS_TOKEN }}
+          WORDPRESS_API_CLIENT_ID: ${{ secrets.WORDPRESS_API_CLIENT_ID }}
+          WORDPRESS_API_CLIENT_SECRET: ${{ secrets.WORDPRESS_API_CLIENT_SECRET }}
+          WORDPRESS_API_USERNAME: ${{ secrets.WORDPRESS_API_USERNAME }}
+          WORDPRESS_API_PASSWORD: ${{ secrets.WORDPRESS_API_PASSWORD }}
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ vars.SMTP_PORT }}
           SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
