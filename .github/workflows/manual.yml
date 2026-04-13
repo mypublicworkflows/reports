@@ -91,21 +91,25 @@ jobs:
   run:
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    env:
+      SOURCE_REPO: ${{ secrets.SOURCE_REPO }}
+      SOURCE_REPO_REF: ${{ vars.SOURCE_REPO_REF }}
+      WORKFLOW_TARGET_SCOPE_VALUE_SECRET: ${{ secrets.WORKFLOW_TARGET_SCOPE_VALUE }}
     steps:
       - uses: actions/checkout@v4
       - name: Checkout source repository
-        if: ${{ vars.SOURCE_REPO != '' && vars.SOURCE_REPO != github.repository && vars.SOURCE_REPO_REF == '' }}
+        if: ${{ env.SOURCE_REPO != '' && env.SOURCE_REPO != github.repository && env.SOURCE_REPO_REF == '' }}
         uses: actions/checkout@v4
         with:
-          repository: ${{ vars.SOURCE_REPO }}
+          repository: ${{ env.SOURCE_REPO }}
           token: ${{ secrets.SOURCE_REPO_PAT }}
           path: source-repo
       - name: Checkout source repository at explicit ref
-        if: ${{ vars.SOURCE_REPO != '' && vars.SOURCE_REPO != github.repository && vars.SOURCE_REPO_REF != '' }}
+        if: ${{ env.SOURCE_REPO != '' && env.SOURCE_REPO != github.repository && env.SOURCE_REPO_REF != '' }}
         uses: actions/checkout@v4
         with:
-          repository: ${{ vars.SOURCE_REPO }}
-          ref: ${{ vars.SOURCE_REPO_REF }}
+          repository: ${{ env.SOURCE_REPO }}
+          ref: ${{ env.SOURCE_REPO_REF }}
           token: ${{ secrets.SOURCE_REPO_PAT }}
           path: source-repo
       - name: Resolve app directory
@@ -114,7 +118,7 @@ jobs:
           SOURCE_REPO_PAT: ${{ secrets.SOURCE_REPO_PAT }}
         run: |
           APP_DIR="."
-          if [ -n "${{ vars.SOURCE_REPO }}" ] && [ "${{ vars.SOURCE_REPO }}" != "${{ github.repository }}" ]; then
+          if [ -n "$SOURCE_REPO" ] && [ "$SOURCE_REPO" != "${{ github.repository }}" ]; then
             if [ -z "$SOURCE_REPO_PAT" ]; then
               echo "SOURCE_REPO_PAT must be configured when SOURCE_REPO points to a different repository."
               exit 1
@@ -143,7 +147,7 @@ jobs:
           SCOPE_INPUT="${{ inputs.scope }}"
           SCOPE_VALUE_INPUT="${{ inputs.scope_value }}"
           DEFAULT_SCOPE="${{ vars.WORKFLOW_TARGET_SCOPE }}"
-          DEFAULT_SCOPE_VALUE="${{ vars.WORKFLOW_TARGET_SCOPE_VALUE }}"
+          DEFAULT_SCOPE_VALUE="$WORKFLOW_TARGET_SCOPE_VALUE_SECRET"
           DEFAULT_PERIOD_LABEL="${{ vars.WORKFLOW_TARGET_PERIOD_LABEL }}"
           DEFAULT_DATE_BASIS="${{ vars.WORKFLOW_TARGET_DATE_BASIS }}"
           START="${{ inputs.start }}"
@@ -381,8 +385,8 @@ jobs:
           SMTP_PORT: ${{ vars.SMTP_PORT }}
           SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-          SMTP_FROM: ${{ vars.SMTP_FROM }}
-          SMTP_FROM_NAME: ${{ vars.SMTP_FROM_NAME }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          SMTP_FROM_NAME: ${{ secrets.SMTP_FROM_NAME }}
           SMTP_STARTTLS: ${{ vars.SMTP_STARTTLS }}
           SMTP_SSL: ${{ vars.SMTP_SSL }}
           PROFESSIONALIZE_API_KEY: ${{ secrets.PROFESSIONALIZE_API_KEY }}
