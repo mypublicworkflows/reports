@@ -64,6 +64,10 @@ on:
         description: "Internal resume token for checkpointed workflow continuation."
         required: false
         type: string
+      source_repo_ref:
+        description: "Optional source repo branch or ref override. Falls back to SOURCE_REPO_REF variable when omitted."
+        required: false
+        type: string
   workflow_call:
     inputs:
       command:
@@ -93,6 +97,9 @@ on:
       orchestration_id:
         required: false
         type: string
+      source_repo_ref:
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -104,8 +111,9 @@ jobs:
     timeout-minutes: 330
     env:
       SOURCE_REPO: ${{ secrets.SOURCE_REPO }}
-      SOURCE_REPO_REF: ${{ vars.SOURCE_REPO_REF }}
+      SOURCE_REPO_REF: ${{ inputs.source_repo_ref || vars.SOURCE_REPO_REF }}
       WORKFLOW_TARGET_SCOPE_VALUE_SECRET: ${{ secrets.WORKFLOW_TARGET_SCOPE_VALUE }}
+      WORKFLOW_TIMEOUT_MINUTES: "330"
     steps:
       - uses: actions/checkout@v4
       - name: Checkout source repository
@@ -418,7 +426,7 @@ jobs:
           REPO_REVIEW_WORKFLOW_FILE: manual.yml
         run: |
           cd "$APP_DIR"
-          DEADLINE_AT=$(( $(date +%s) + (180 * 60) ))
+          DEADLINE_AT=$(( $(date +%s) + ($WORKFLOW_TIMEOUT_MINUTES * 60) ))
           export REPO_REVIEW_WORKFLOW_DEADLINE_AT="$DEADLINE_AT"
           COMMAND="${{ inputs.command }}"
           if [ "$COMMAND" = "run" ]; then
