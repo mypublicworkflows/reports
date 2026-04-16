@@ -60,6 +60,10 @@ on:
           - executive
           - repo
           - contributor
+      orchestration_id:
+        description: "Internal resume token for checkpointed workflow continuation."
+        required: false
+        type: string
   workflow_call:
     inputs:
       command:
@@ -86,11 +90,18 @@ on:
       kind:
         required: false
         type: string
+      orchestration_id:
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: write
 
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 330
     env:
       SOURCE_REPO: ${{ secrets.SOURCE_REPO }}
       SOURCE_REPO_REF: ${{ vars.SOURCE_REPO_REF }}
@@ -154,6 +165,7 @@ jobs:
           END="${{ inputs.end }}"
           PERIOD_LABEL_INPUT="${{ inputs.period_label }}"
           KIND="${{ inputs.kind }}"
+          ORCHESTRATION_ID="${{ inputs.orchestration_id }}"
 
           SCOPE="$SCOPE_INPUT"
           if [ "$SCOPE_INPUT" = "all" ] && [ -z "$SCOPE_VALUE_INPUT" ] && [ -n "$DEFAULT_SCOPE" ]; then
@@ -183,24 +195,26 @@ jobs:
               ;;
           esac
 
-          if [ "$SCOPE" != "all" ] && [ -z "$SCOPE_VALUE" ]; then
+          if [ -n "$ORCHESTRATION_ID" ]; then
+            echo "Resuming orchestration: $ORCHESTRATION_ID"
+          elif [ "$SCOPE" != "all" ] && [ -z "$SCOPE_VALUE" ]; then
             echo "scope_value is required when scope is not 'all'."
             exit 1
           fi
 
-          if [ "$MODE" = "custom" ]; then
+          if [ -z "$ORCHESTRATION_ID" ] && [ "$MODE" = "custom" ]; then
             if [ -z "$START" ] || [ -z "$END" ]; then
               echo "custom mode requires both start and end in YYYY-MM-DD format."
               exit 1
             fi
           fi
 
-          if [ "$MODE" != "custom" ] && { [ -n "$START" ] || [ -n "$END" ]; }; then
+          if [ -z "$ORCHESTRATION_ID" ] && [ "$MODE" != "custom" ] && { [ -n "$START" ] || [ -n "$END" ]; }; then
             echo "start/end are only used when mode is custom."
             exit 1
           fi
 
-          if [ "$MODE" = "custom" ] && [ -n "$PERIOD_LABEL" ]; then
+          if [ -z "$ORCHESTRATION_ID" ] && [ "$MODE" = "custom" ] && [ -n "$PERIOD_LABEL" ]; then
             echo "period_label should not be used when mode is custom."
             exit 1
           fi
@@ -220,6 +234,7 @@ jobs:
           echo "EFFECTIVE_START=$START" >> "$GITHUB_ENV"
           echo "EFFECTIVE_END=$END" >> "$GITHUB_ENV"
           echo "EFFECTIVE_DATE_BASIS=$DATE_BASIS" >> "$GITHUB_ENV"
+          echo "EFFECTIVE_ORCHESTRATION_ID=$ORCHESTRATION_ID" >> "$GITHUB_ENV"
       - name: Generate workflow config
         shell: bash
         env:
@@ -233,6 +248,7 @@ jobs:
           WORKFLOW_WORDPRESS_PREVIEW_ONLY: ${{ vars.WORKFLOW_WORDPRESS_PREVIEW_ONLY }}
           WORKFLOW_WORDPRESS_DEFAULT_STATUS: ${{ vars.WORKFLOW_WORDPRESS_DEFAULT_STATUS }}
           WORKFLOW_SMTP_ENABLED: ${{ vars.WORKFLOW_SMTP_ENABLED }}
+          REPORTS_DATABASE_URL: ${{ secrets.REPORTS_DATABASE_URL }}
         run: |
           export WORKFLOW_CONFIG_PATH="$RUNNER_TEMP/repo-review-actions.yaml"
           python - <<'PY'
@@ -360,7 +376,11 @@ jobs:
                   "model_env": "PROFESSIONALIZE_EMBEDDING_MODEL",
               },
               "storage": {
-                  "database_url": "sqlite:///repo_review.db",
+                  "database_url": os.getenv("REPORTS_DATABASE_URL", "").strip() or "sqlite:///repo_review.db",
+              },
+              "orchestration": {
+                  "enabled": True,
+                  "deadline_buffer_seconds": 1200,
               },
           }
 
@@ -393,13 +413,18 @@ jobs:
           PROFESSIONALIZE_BASE_URL: ${{ secrets.PROFESSIONALIZE_BASE_URL }}
           PROFESSIONALIZE_LLM_MODEL: ${{ vars.PROFESSIONALIZE_LLM_MODEL }}
           PROFESSIONALIZE_EMBEDDING_MODEL: ${{ vars.PROFESSIONALIZE_EMBEDDING_MODEL }}
+          REPORTS_DATABASE_URL: ${{ secrets.REPORTS_DATABASE_URL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_REVIEW_WORKFLOW_FILE: manual.yml
         run: |
           cd "$APP_DIR"
+          DEADLINE_AT=$(( $(date +%s) + (180 * 60) ))
+          export REPO_REVIEW_WORKFLOW_DEADLINE_AT="$DEADLINE_AT"
           COMMAND="${{ inputs.command }}"
           if [ "$COMMAND" = "run" ]; then
-            CMD="python -m repo_review run $EFFECTIVE_MODE --config '$WORKFLOW_CONFIG_PATH' --scope '$EFFECTIVE_SCOPE'"
+            CMD="python -u -m repo_review run $EFFECTIVE_MODE --config '$WORKFLOW_CONFIG_PATH' --scope '$EFFECTIVE_SCOPE'"
           else
-            CMD="python -m repo_review $COMMAND ${{ inputs.kind }} --config '$WORKFLOW_CONFIG_PATH' --scope '$EFFECTIVE_SCOPE'"
+            CMD="python -u -m repo_review $COMMAND ${{ inputs.kind }} --config '$WORKFLOW_CONFIG_PATH' --scope '$EFFECTIVE_SCOPE'"
           fi
 
           if [ -n "$EFFECTIVE_SCOPE_VALUE" ]; then CMD="$CMD --scope-value '$EFFECTIVE_SCOPE_VALUE'"; fi
@@ -407,6 +432,7 @@ jobs:
           if [ -n "$EFFECTIVE_START" ]; then CMD="$CMD --start '$EFFECTIVE_START'"; fi
           if [ -n "$EFFECTIVE_END" ]; then CMD="$CMD --end '$EFFECTIVE_END'"; fi
           if [ -n "$EFFECTIVE_DATE_BASIS" ]; then CMD="$CMD --date-basis '$EFFECTIVE_DATE_BASIS'"; fi
+          if [ -n "$EFFECTIVE_ORCHESTRATION_ID" ]; then CMD="$CMD --orchestration-id '$EFFECTIVE_ORCHESTRATION_ID'"; fi
 
           echo "Executing: $CMD"
           eval "$CMD"
