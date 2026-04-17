@@ -108,7 +108,7 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 360
     env:
       SOURCE_REPO: ${{ secrets.SOURCE_REPO }}
       SOURCE_REPO_REF: ${{ inputs.source_repo_ref || vars.SOURCE_REPO_REF }}
