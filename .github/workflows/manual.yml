@@ -256,7 +256,8 @@ jobs:
           WORKFLOW_WORDPRESS_PREVIEW_ONLY: ${{ vars.WORKFLOW_WORDPRESS_PREVIEW_ONLY }}
           WORKFLOW_WORDPRESS_DEFAULT_STATUS: ${{ vars.WORKFLOW_WORDPRESS_DEFAULT_STATUS }}
           WORKFLOW_SMTP_ENABLED: ${{ vars.WORKFLOW_SMTP_ENABLED }}
-          REPORTS_DATABASE_URL: ${{ secrets.REPORTS_DATABASE_URL }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |
           export WORKFLOW_CONFIG_PATH="$RUNNER_TEMP/repo-review-actions.yaml"
           python - <<'PY'
@@ -384,7 +385,7 @@ jobs:
                   "model_env": "PROFESSIONALIZE_EMBEDDING_MODEL",
               },
               "storage": {
-                  "database_url": os.getenv("REPORTS_DATABASE_URL", "").strip() or "sqlite:///repo_review.db",
+                  "database_url": os.getenv("TURSO_DATABASE_URL", "").strip() or "sqlite:///repo_review.db",
               },
               "orchestration": {
                   "enabled": True,
@@ -421,7 +422,8 @@ jobs:
           PROFESSIONALIZE_BASE_URL: ${{ secrets.PROFESSIONALIZE_BASE_URL }}
           PROFESSIONALIZE_LLM_MODEL: ${{ vars.PROFESSIONALIZE_LLM_MODEL }}
           PROFESSIONALIZE_EMBEDDING_MODEL: ${{ vars.PROFESSIONALIZE_EMBEDDING_MODEL }}
-          REPORTS_DATABASE_URL: ${{ secrets.REPORTS_DATABASE_URL }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_REVIEW_WORKFLOW_FILE: manual.yml
         run: |
