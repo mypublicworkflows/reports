@@ -108,12 +108,12 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 330
+    timeout-minutes: 30
     env:
       SOURCE_REPO: ${{ secrets.SOURCE_REPO }}
       SOURCE_REPO_REF: ${{ inputs.source_repo_ref || vars.SOURCE_REPO_REF }}
       WORKFLOW_TARGET_SCOPE_VALUE_SECRET: ${{ secrets.WORKFLOW_TARGET_SCOPE_VALUE }}
-      WORKFLOW_TIMEOUT_MINUTES: "330"
+      WORKFLOW_TIMEOUT_MINUTES: "30"
     steps:
       - uses: actions/checkout@v4
       - name: Checkout source repository
