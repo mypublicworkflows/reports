@@ -108,12 +108,11 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: ${{ fromJSON(vars.WORKFLOW_TIMEOUT_MINUTES || '360') }}
     env:
       SOURCE_REPO: ${{ secrets.SOURCE_REPO }}
       SOURCE_REPO_REF: ${{ inputs.source_repo_ref || vars.SOURCE_REPO_REF }}
       WORKFLOW_TARGET_SCOPE_VALUE_SECRET: ${{ secrets.WORKFLOW_TARGET_SCOPE_VALUE }}
-      WORKFLOW_TIMEOUT_MINUTES: "30"
     steps:
       - uses: actions/checkout@v4
       - name: Checkout source repository
@@ -428,7 +427,7 @@ jobs:
           REPO_REVIEW_WORKFLOW_FILE: manual.yml
         run: |
           cd "$APP_DIR"
-          DEADLINE_AT=$(( $(date +%s) + ($WORKFLOW_TIMEOUT_MINUTES * 60) ))
+          DEADLINE_AT=$(( $(date +%s) + (${{ vars.WORKFLOW_TIMEOUT_MINUTES || '360' }} * 60) ))
           export REPO_REVIEW_WORKFLOW_DEADLINE_AT="$DEADLINE_AT"
           COMMAND="${{ inputs.command }}"
           if [ "$COMMAND" = "run" ]; then
