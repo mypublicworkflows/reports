@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       command:
-        description: "Workflow action: run generates artifacts, preview builds WordPress email bodies, publish sends through the configured backend"
+        description: "Workflow action: run generates artifacts, preview builds WordPress email bodies, publish sends through the configured backend, republish reuses a saved matching run"
         required: true
         default: run
         type: choice
@@ -16,6 +16,7 @@ on:
           - run
           - preview
           - publish
+          - republish
       mode:
         description: "Run mode: monthly | quarterly | semiannual | custom"
         required: true
@@ -72,6 +73,14 @@ on:
         description: "Optional source repo branch or ref override. Falls back to SOURCE_REPO_REF variable when omitted."
         required: false
         type: string
+      target_site:
+        description: "Optional WordPress site override for publish or republish. Example: professionalizeagents.wordpress.com"
+        required: false
+        type: string
+      target_category:
+        description: "Optional category override for publish or republish. Example: sialkot-agents"
+        required: false
+        type: string
   workflow_call:
     inputs:
       command:
@@ -102,6 +111,12 @@ on:
         required: false
         type: string
       source_repo_ref:
+        required: false
+        type: string
+      target_site:
+        required: false
+        type: string
+      target_category:
         required: false
         type: string
 
@@ -177,6 +192,8 @@ jobs:
           PERIOD_LABEL_INPUT="${{ inputs.period_label }}"
           KIND="${{ inputs.kind }}"
           ORCHESTRATION_ID="${{ inputs.orchestration_id }}"
+          TARGET_SITE_INPUT="${{ inputs.target_site }}"
+          TARGET_CATEGORY_INPUT="${{ inputs.target_category }}"
 
           SCOPE="$SCOPE_INPUT"
           if [ "$SCOPE_INPUT" = "all" ] && [ -z "$SCOPE_VALUE_INPUT" ] && [ -n "$DEFAULT_SCOPE" ]; then
@@ -199,9 +216,9 @@ jobs:
           fi
 
           case "$COMMAND" in
-            run|preview|publish) ;;
+            run|preview|publish|republish) ;;
             *)
-              echo "command must be one of: run, preview, publish."
+              echo "command must be one of: run, preview, publish, republish."
               exit 1
               ;;
           esac
@@ -246,6 +263,17 @@ jobs:
           echo "EFFECTIVE_END=$END" >> "$GITHUB_ENV"
           echo "EFFECTIVE_DATE_BASIS=$DATE_BASIS" >> "$GITHUB_ENV"
           echo "EFFECTIVE_ORCHESTRATION_ID=$ORCHESTRATION_ID" >> "$GITHUB_ENV"
+          echo "EFFECTIVE_TARGET_SITE=$TARGET_SITE_INPUT" >> "$GITHUB_ENV"
+          echo "EFFECTIVE_TARGET_CATEGORY=$TARGET_CATEGORY_INPUT" >> "$GITHUB_ENV"
+
+          EFFECTIVE_PUBLISHING_BACKEND="${{ vars.WORKFLOW_PUBLISHING_BACKEND }}"
+          if { [ "$COMMAND" = "publish" ] || [ "$COMMAND" = "republish" ]; } && [ -n "$TARGET_SITE_INPUT" ]; then
+            EFFECTIVE_PUBLISHING_BACKEND="wordpress_api"
+          fi
+          if [ -z "$EFFECTIVE_PUBLISHING_BACKEND" ]; then
+            EFFECTIVE_PUBLISHING_BACKEND="wordpress_email"
+          fi
+          echo "EFFECTIVE_PUBLISHING_BACKEND=$EFFECTIVE_PUBLISHING_BACKEND" >> "$GITHUB_ENV"
       - name: Generate workflow config
         shell: bash
         env:
@@ -253,7 +281,6 @@ jobs:
           SMTP_PORT: ${{ vars.SMTP_PORT }}
           SMTP_STARTTLS: ${{ vars.SMTP_STARTTLS }}
           SMTP_SSL: ${{ vars.SMTP_SSL }}
-          WORKFLOW_PUBLISHING_BACKEND: ${{ vars.WORKFLOW_PUBLISHING_BACKEND }}
           WORKFLOW_LLM_ENABLED: ${{ vars.WORKFLOW_LLM_ENABLED }}
           WORKFLOW_WORDPRESS_ENABLED: ${{ vars.WORKFLOW_WORDPRESS_ENABLED }}
           WORKFLOW_WORDPRESS_PREVIEW_ONLY: ${{ vars.WORKFLOW_WORDPRESS_PREVIEW_ONLY }}
@@ -323,7 +350,7 @@ jobs:
                   "enable_watchlist": True,
               },
               "publishing": {
-                  "backend": os.getenv("WORKFLOW_PUBLISHING_BACKEND", "").strip() or "wordpress_email",
+                  "backend": os.getenv("EFFECTIVE_PUBLISHING_BACKEND", "").strip() or "wordpress_email",
               },
               "wordpress": {
                   "enabled": as_bool("WORKFLOW_WORDPRESS_ENABLED", False),
@@ -401,6 +428,75 @@ jobs:
           print(f"Generated workflow config at {output_path}")
           PY
           echo "WORKFLOW_CONFIG_PATH=$WORKFLOW_CONFIG_PATH" >> "$GITHUB_ENV"
+      - name: Resolve saved run for republish
+        if: ${{ inputs.command == 'republish' }}
+        shell: bash
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          INPUT_KIND: ${{ inputs.kind }}
+        run: |
+          cd "$APP_DIR"
+          python - <<'PY'
+          import os
+          from repo_review.utils.dates import custom_date_range, previous_completed_period
+          from repo_review.workflows.republish_runs import resolve_latest_saved_run
+
+          mode = os.environ["EFFECTIVE_MODE"]
+          period_label = os.environ.get("EFFECTIVE_PERIOD_LABEL", "").strip()
+          if mode == "custom":
+              period_label = custom_date_range(
+                  os.environ["EFFECTIVE_START"],
+                  os.environ["EFFECTIVE_END"],
+                  "Asia/Karachi",
+              ).label
+          elif not period_label:
+              period_label = previous_completed_period(mode, "Asia/Karachi").label
+
+          scope_value = os.environ.get("EFFECTIVE_SCOPE_VALUE", "").strip() or "all"
+          ref = resolve_latest_saved_run(
+              os.environ["TURSO_DATABASE_URL"],
+              mode=mode,
+              scope_type=os.environ["EFFECTIVE_SCOPE"],
+              scope_value=scope_value,
+              period_label=period_label,
+              kind=os.environ.get("INPUT_KIND", "").strip() or None,
+          )
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
+              handle.write(f"REPUBLISH_SOURCE_RUN_ID={ref.run_id}\n")
+              handle.write(f"REPUBLISH_ARTIFACT_REPO={ref.github_repo_full_name}\n")
+              handle.write(f"REPUBLISH_ARTIFACT_WORKFLOW_RUN_ID={ref.github_workflow_run_id}\n")
+              handle.write(f"REPUBLISH_ARTIFACT_NAME={ref.artifact_name}\n")
+          print(f"Resolved saved run {ref.run_id} from {ref.github_repo_full_name} workflow run {ref.github_workflow_run_id}.")
+          PY
+      - name: Download saved artifact bundle for republish
+        if: ${{ inputs.command == 'republish' }}
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd "$APP_DIR"
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from repo_review.workflows.republish_runs import SavedRunArtifactRef, download_saved_run_artifact
+
+          destination = Path(os.environ["RUNNER_TEMP"]) / "republish-source"
+          ref = SavedRunArtifactRef(
+              run_id=os.environ["REPUBLISH_SOURCE_RUN_ID"],
+              github_repo_full_name=os.environ["REPUBLISH_ARTIFACT_REPO"],
+              github_workflow_run_id=os.environ["REPUBLISH_ARTIFACT_WORKFLOW_RUN_ID"],
+              artifact_name=os.environ["REPUBLISH_ARTIFACT_NAME"],
+          )
+          artifact_root = download_saved_run_artifact(
+              ref,
+              token=os.environ["GITHUB_TOKEN"],
+              destination_dir=destination,
+          )
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
+              handle.write(f"REPUBLISH_ARTIFACT_DIR={artifact_root}\n")
+          print(f"Downloaded saved artifact bundle to {artifact_root}")
+          PY
       - name: Run repo review agent
         shell: bash
         env:
@@ -429,6 +525,7 @@ jobs:
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_REVIEW_WORKFLOW_FILE: manual.yml
+          INPUT_KIND: ${{ inputs.kind }}
         run: |
           cd "$APP_DIR"
           DEADLINE_AT=$(( $(date +%s) + (${{ vars.WORKFLOW_TIMEOUT_MINUTES || '360' }} * 60) ))
@@ -436,16 +533,26 @@ jobs:
           COMMAND="${{ inputs.command }}"
           if [ "$COMMAND" = "run" ]; then
             CMD="python -u -m repo_review run $EFFECTIVE_MODE --config '$WORKFLOW_CONFIG_PATH' --scope '$EFFECTIVE_SCOPE'"
+          elif [ "$COMMAND" = "republish" ]; then
+            OUTPUT_DIR="artifacts/republished/$REPUBLISH_SOURCE_RUN_ID/publish"
+            CMD="python -u -m repo_review republish --config '$WORKFLOW_CONFIG_PATH' --artifact-dir '$REPUBLISH_ARTIFACT_DIR' --output-dir '$OUTPUT_DIR'"
+            if [ -n "${{ inputs.kind }}" ]; then CMD="$CMD --kind '${{ inputs.kind }}'"; fi
           else
             CMD="python -u -m repo_review $COMMAND ${{ inputs.kind }} --config '$WORKFLOW_CONFIG_PATH' --scope '$EFFECTIVE_SCOPE'"
           fi
 
-          if [ -n "$EFFECTIVE_SCOPE_VALUE" ]; then CMD="$CMD --scope-value '$EFFECTIVE_SCOPE_VALUE'"; fi
-          if [ -n "$EFFECTIVE_PERIOD_LABEL" ]; then CMD="$CMD --period '$EFFECTIVE_PERIOD_LABEL'"; fi
-          if [ -n "$EFFECTIVE_START" ]; then CMD="$CMD --start '$EFFECTIVE_START'"; fi
-          if [ -n "$EFFECTIVE_END" ]; then CMD="$CMD --end '$EFFECTIVE_END'"; fi
-          if [ -n "$EFFECTIVE_DATE_BASIS" ]; then CMD="$CMD --date-basis '$EFFECTIVE_DATE_BASIS'"; fi
-          if [ -n "$EFFECTIVE_ORCHESTRATION_ID" ]; then CMD="$CMD --orchestration-id '$EFFECTIVE_ORCHESTRATION_ID'"; fi
+          if [ "$COMMAND" != "republish" ]; then
+            if [ -n "$EFFECTIVE_SCOPE_VALUE" ]; then CMD="$CMD --scope-value '$EFFECTIVE_SCOPE_VALUE'"; fi
+            if [ -n "$EFFECTIVE_PERIOD_LABEL" ]; then CMD="$CMD --period '$EFFECTIVE_PERIOD_LABEL'"; fi
+            if [ -n "$EFFECTIVE_START" ]; then CMD="$CMD --start '$EFFECTIVE_START'"; fi
+            if [ -n "$EFFECTIVE_END" ]; then CMD="$CMD --end '$EFFECTIVE_END'"; fi
+            if [ -n "$EFFECTIVE_DATE_BASIS" ]; then CMD="$CMD --date-basis '$EFFECTIVE_DATE_BASIS'"; fi
+            if [ -n "$EFFECTIVE_ORCHESTRATION_ID" ]; then CMD="$CMD --orchestration-id '$EFFECTIVE_ORCHESTRATION_ID'"; fi
+          fi
+          if { [ "$COMMAND" = "publish" ] || [ "$COMMAND" = "republish" ]; }; then
+            if [ -n "$EFFECTIVE_TARGET_SITE" ]; then CMD="$CMD --target-site '$EFFECTIVE_TARGET_SITE'"; fi
+            if [ -n "$EFFECTIVE_TARGET_CATEGORY" ]; then CMD="$CMD --target-category '$EFFECTIVE_TARGET_CATEGORY'"; fi
+          fi
 
           echo "Executing: $CMD"
           eval "$CMD"
@@ -453,7 +560,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: repo-review-artifacts
+          name: ${{ env.CODEANALYZER_ARTIFACT_NAME != '' && env.CODEANALYZER_ARTIFACT_NAME || format('repo-review-artifacts-{0}', github.run_id) }}
           path: |
             artifacts/
             source-repo/artifacts/
