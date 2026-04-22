@@ -18,6 +18,7 @@ on:
           - run
           - preview
           - publish
+          - republish
       scope:
         description: "Scope override for manual dispatch"
         required: true
@@ -44,6 +45,14 @@ on:
           - executive
           - repo
           - contributor
+      target_site:
+        description: "Optional WordPress site override for publish or republish"
+        required: false
+        type: string
+      target_category:
+        description: "Optional category override for publish or republish"
+        required: false
+        type: string
 
 jobs:
   run:
@@ -54,4 +63,6 @@ jobs:
       scope: ${{ github.event_name == 'workflow_dispatch' && inputs.scope || 'all' }}
       scope_value: ${{ github.event_name == 'workflow_dispatch' && inputs.scope_value || '' }}
       kind: ${{ github.event_name == 'workflow_dispatch' && inputs.kind || 'rankings' }}
+      target_site: ${{ github.event_name == 'workflow_dispatch' && inputs.target_site || '' }}
+      target_category: ${{ github.event_name == 'workflow_dispatch' && inputs.target_category || '' }}
     secrets: inherit
