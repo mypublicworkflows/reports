@@ -53,6 +53,11 @@ on:
         description: "Optional category override for publish or republish"
         required: false
         type: string
+      notify_on_update_comments:
+        description: "When true, existing-post WordPress API updates can add one FYI comment."
+        required: true
+        default: true
+        type: boolean
 
 jobs:
   run:
@@ -65,4 +70,5 @@ jobs:
       kind: ${{ github.event_name == 'workflow_dispatch' && inputs.kind || 'rankings' }}
       target_site: ${{ github.event_name == 'workflow_dispatch' && inputs.target_site || '' }}
       target_category: ${{ github.event_name == 'workflow_dispatch' && inputs.target_category || '' }}
+      notify_on_update_comments: ${{ github.event_name == 'workflow_dispatch' && inputs.notify_on_update_comments || true }}
     secrets: inherit
