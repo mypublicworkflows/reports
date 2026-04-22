@@ -81,6 +81,11 @@ on:
         description: "Optional category override for publish or republish. Example: sialkot-agents"
         required: false
         type: string
+      notify_on_update_comments:
+        description: "When true, existing-post WordPress API updates can add one FYI comment mentioning already-mentioned users."
+        required: true
+        default: true
+        type: boolean
   workflow_call:
     inputs:
       command:
@@ -119,6 +124,10 @@ on:
       target_category:
         required: false
         type: string
+      notify_on_update_comments:
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -194,6 +203,7 @@ jobs:
           ORCHESTRATION_ID="${{ inputs.orchestration_id }}"
           TARGET_SITE_INPUT="${{ inputs.target_site }}"
           TARGET_CATEGORY_INPUT="${{ inputs.target_category }}"
+          NOTIFY_ON_UPDATE_COMMENTS_INPUT="${{ inputs.notify_on_update_comments }}"
 
           SCOPE="$SCOPE_INPUT"
           if [ "$SCOPE_INPUT" = "all" ] && [ -z "$SCOPE_VALUE_INPUT" ] && [ -n "$DEFAULT_SCOPE" ]; then
@@ -265,6 +275,7 @@ jobs:
           echo "EFFECTIVE_ORCHESTRATION_ID=$ORCHESTRATION_ID" >> "$GITHUB_ENV"
           echo "EFFECTIVE_TARGET_SITE=$TARGET_SITE_INPUT" >> "$GITHUB_ENV"
           echo "EFFECTIVE_TARGET_CATEGORY=$TARGET_CATEGORY_INPUT" >> "$GITHUB_ENV"
+          echo "EFFECTIVE_NOTIFY_ON_UPDATE_COMMENTS=$NOTIFY_ON_UPDATE_COMMENTS_INPUT" >> "$GITHUB_ENV"
 
           EFFECTIVE_PUBLISHING_BACKEND="${{ vars.WORKFLOW_PUBLISHING_BACKEND }}"
           if { [ "$COMMAND" = "publish" ] || [ "$COMMAND" = "republish" ]; } && [ -n "$TARGET_SITE_INPUT" ]; then
@@ -285,6 +296,7 @@ jobs:
           WORKFLOW_WORDPRESS_ENABLED: ${{ vars.WORKFLOW_WORDPRESS_ENABLED }}
           WORKFLOW_WORDPRESS_PREVIEW_ONLY: ${{ vars.WORKFLOW_WORDPRESS_PREVIEW_ONLY }}
           WORKFLOW_WORDPRESS_DEFAULT_STATUS: ${{ vars.WORKFLOW_WORDPRESS_DEFAULT_STATUS }}
+          WORKFLOW_WORDPRESS_API_COMMENT_ON_UPDATE_WITH_MENTIONS: ${{ vars.WORKFLOW_WORDPRESS_API_COMMENT_ON_UPDATE_WITH_MENTIONS }}
           WORKFLOW_SMTP_ENABLED: ${{ vars.WORKFLOW_SMTP_ENABLED }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
@@ -379,6 +391,10 @@ jobs:
                   "username_env": "WORDPRESS_API_USERNAME",
                   "password_env": "WORDPRESS_API_PASSWORD",
                   "update_by_slug": True,
+                  "comment_on_update_with_mentions": as_bool(
+                      "EFFECTIVE_NOTIFY_ON_UPDATE_COMMENTS",
+                      as_bool("WORKFLOW_WORDPRESS_API_COMMENT_ON_UPDATE_WITH_MENTIONS", False),
+                  ),
               },
               "smtp": {
                   "enabled": as_bool("WORKFLOW_SMTP_ENABLED", True),
