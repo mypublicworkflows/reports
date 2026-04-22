@@ -1,4 +1,8 @@
 name: Monthly Repo Review
+run-name: >-
+  ${{ github.event_name == 'workflow_dispatch'
+      && format('{0} {1} | {2}{3} | monthly', inputs.command, inputs.kind, inputs.scope, inputs.scope_value != '' && format(':{0}', inputs.scope_value) || '')
+      || 'run rankings | all | monthly' }}
 
 on:
   schedule:
