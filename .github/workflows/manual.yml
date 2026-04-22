@@ -1,4 +1,8 @@
 name: Repo Review Agent
+run-name: >-
+  ${{ inputs.command }} ${{ inputs.kind }} |
+  ${{ inputs.scope }}${{ inputs.scope_value != '' && format(':{0}', inputs.scope_value) || '' }} |
+  ${{ inputs.mode }}${{ inputs.period_label != '' && format(' {0}', inputs.period_label) || '' }}
 
 on:
   workflow_dispatch:
