@@ -8,6 +8,14 @@ on:
     - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
+      command:
+        description: "Choose whether to run mention sync or publish provenance backfill."
+        required: true
+        default: sync
+        type: choice
+        options:
+          - sync
+          - backfill-provenance
       source_repo_ref:
         description: "Optional source repo branch or ref override. Falls back to SOURCE_REPO_REF variable when omitted."
         required: false
@@ -106,10 +114,14 @@ jobs:
         run: |
           cd "$APP_DIR"
           python -m pip install -e .[dev]
-      - name: Run comment mention sync
+      - name: Run comment mention sync or provenance backfill
         shell: bash
         run: |
           cd "$APP_DIR"
+          COMMAND="sync"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.command }}" ]; then
+            COMMAND="${{ inputs.command }}"
+          fi
           PUBLISH_FLAG="--publish"
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.publish }}" != "true" ]; then
             PUBLISH_FLAG="--no-publish"
@@ -134,7 +146,11 @@ jobs:
           if [ -n "${{ inputs.limit }}" ]; then
             LIMIT_ARG="--limit '${{ inputs.limit }}'"
           fi
-          eval "python -u -m repo_review comments sync --config config.yaml $PUBLISH_FLAG $SITE_ARG $POST_SLUG_ARG $COMMENT_ID_ARG $SINCE_ARG $LIMIT_ARG"
+          if [ "$COMMAND" = "backfill-provenance" ]; then
+            eval "python -u -m repo_review comments backfill-provenance --config config.yaml $SITE_ARG $POST_SLUG_ARG $SINCE_ARG $LIMIT_ARG"
+          else
+            eval "python -u -m repo_review comments sync --config config.yaml $PUBLISH_FLAG $SITE_ARG $POST_SLUG_ARG $COMMENT_ID_ARG $SINCE_ARG $LIMIT_ARG"
+          fi
       - name: Upload comment mention artifacts
         uses: actions/upload-artifact@v4
         if: always()
