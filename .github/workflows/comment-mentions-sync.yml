@@ -35,7 +35,7 @@ on:
       publish:
         description: "When true, publish eligible replies."
         required: true
-        default: false
+        default: true
         type: boolean
 
 permissions:
