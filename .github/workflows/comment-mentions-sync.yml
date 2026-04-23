@@ -8,6 +8,10 @@ on:
     - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
+      source_repo_ref:
+        description: "Optional source repo branch or ref override. Falls back to SOURCE_REPO_REF variable when omitted."
+        required: false
+        type: string
       site:
         description: "Optional allowlisted site override. Example: asposesialkotgroup.wordpress.com"
         required: false
@@ -43,7 +47,7 @@ jobs:
     timeout-minutes: 60
     env:
       SOURCE_REPO: ${{ secrets.SOURCE_REPO }}
-      SOURCE_REPO_REF: ${{ vars.SOURCE_REPO_REF }}
+      SOURCE_REPO_REF: ${{ inputs.source_repo_ref || vars.SOURCE_REPO_REF }}
       GITLAB_URL: ${{ secrets.GITLAB_URL }}
       GITLAB_PAT: ${{ secrets.GITLAB_PAT }}
       WORDPRESS_API_SITE: ${{ secrets.WORDPRESS_API_SITE }}
