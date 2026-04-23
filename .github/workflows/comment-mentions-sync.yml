@@ -1,0 +1,142 @@
+name: Comment Mentions Sync
+run-name: >-
+  comment mentions sync |
+  ${{ inputs.site || 'all sites' }}${{ inputs.post_slug != '' && format(' | {0}', inputs.post_slug) || '' }}
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      site:
+        description: "Optional allowlisted site override. Example: asposesialkotgroup.wordpress.com"
+        required: false
+        type: string
+      post_slug:
+        description: "Optional post slug filter."
+        required: false
+        type: string
+      comment_id:
+        description: "Optional comment id filter."
+        required: false
+        type: string
+      since_hours:
+        description: "Optional recent window override in hours."
+        required: false
+        type: string
+      limit:
+        description: "Optional max mentions to process."
+        required: false
+        type: string
+      publish:
+        description: "When true, publish eligible replies."
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SOURCE_REPO: ${{ secrets.SOURCE_REPO }}
+      SOURCE_REPO_REF: ${{ vars.SOURCE_REPO_REF }}
+      GITLAB_URL: ${{ secrets.GITLAB_URL }}
+      GITLAB_PAT: ${{ secrets.GITLAB_PAT }}
+      WORDPRESS_API_SITE: ${{ secrets.WORDPRESS_API_SITE }}
+      WORDPRESS_API_ACCESS_TOKEN: ${{ secrets.WORDPRESS_API_ACCESS_TOKEN }}
+      WORDPRESS_API_CLIENT_ID: ${{ secrets.WORDPRESS_API_CLIENT_ID }}
+      WORDPRESS_API_CLIENT_SECRET: ${{ secrets.WORDPRESS_API_CLIENT_SECRET }}
+      WORDPRESS_API_USERNAME: ${{ secrets.WORDPRESS_API_USERNAME }}
+      WORDPRESS_API_PASSWORD: ${{ secrets.WORDPRESS_API_PASSWORD }}
+      PROFESSIONALIZE_API_KEY: ${{ secrets.PROFESSIONALIZE_API_KEY }}
+      PROFESSIONALIZE_BASE_URL: ${{ secrets.PROFESSIONALIZE_BASE_URL }}
+      PROFESSIONALIZE_LLM_MODEL: ${{ vars.PROFESSIONALIZE_LLM_MODEL }}
+      PROFESSIONALIZE_EMBEDDING_MODEL: ${{ vars.PROFESSIONALIZE_EMBEDDING_MODEL }}
+      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+      GITHUB_PAT: ${{ secrets.GITHUB_PAT }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout source repository
+        if: ${{ env.SOURCE_REPO != '' && env.SOURCE_REPO != github.repository && env.SOURCE_REPO_REF == '' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SOURCE_REPO }}
+          token: ${{ secrets.SOURCE_REPO_PAT }}
+          path: source-repo
+      - name: Checkout source repository at explicit ref
+        if: ${{ env.SOURCE_REPO != '' && env.SOURCE_REPO != github.repository && env.SOURCE_REPO_REF != '' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SOURCE_REPO }}
+          ref: ${{ env.SOURCE_REPO_REF }}
+          token: ${{ secrets.SOURCE_REPO_PAT }}
+          path: source-repo
+      - name: Resolve app directory
+        shell: bash
+        env:
+          SOURCE_REPO_PAT: ${{ secrets.SOURCE_REPO_PAT }}
+        run: |
+          APP_DIR="."
+          if [ -n "$SOURCE_REPO" ] && [ "$SOURCE_REPO" != "${{ github.repository }}" ]; then
+            if [ -z "$SOURCE_REPO_PAT" ]; then
+              echo "SOURCE_REPO_PAT must be configured when SOURCE_REPO points to a different repository."
+              exit 1
+            fi
+            APP_DIR="source-repo"
+          fi
+          if [ ! -f "$APP_DIR/pyproject.toml" ]; then
+            echo "No repo-review source tree was found in $APP_DIR."
+            exit 1
+          fi
+          echo "APP_DIR=$APP_DIR" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install package
+        shell: bash
+        run: |
+          cd "$APP_DIR"
+          python -m pip install -e .[dev]
+      - name: Run comment mention sync
+        shell: bash
+        run: |
+          cd "$APP_DIR"
+          PUBLISH_FLAG="--publish"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.publish }}" != "true" ]; then
+            PUBLISH_FLAG="--no-publish"
+          fi
+          SITE_ARG=""
+          POST_SLUG_ARG=""
+          COMMENT_ID_ARG=""
+          SINCE_ARG=""
+          LIMIT_ARG=""
+          if [ -n "${{ inputs.site }}" ]; then
+            SITE_ARG="--site '${{ inputs.site }}'"
+          fi
+          if [ -n "${{ inputs.post_slug }}" ]; then
+            POST_SLUG_ARG="--post-slug '${{ inputs.post_slug }}'"
+          fi
+          if [ -n "${{ inputs.comment_id }}" ]; then
+            COMMENT_ID_ARG="--comment-id '${{ inputs.comment_id }}'"
+          fi
+          if [ -n "${{ inputs.since_hours }}" ]; then
+            SINCE_ARG="--since-hours '${{ inputs.since_hours }}'"
+          fi
+          if [ -n "${{ inputs.limit }}" ]; then
+            LIMIT_ARG="--limit '${{ inputs.limit }}'"
+          fi
+          eval "python -u -m repo_review comments sync --config config.yaml $PUBLISH_FLAG $SITE_ARG $POST_SLUG_ARG $COMMENT_ID_ARG $SINCE_ARG $LIMIT_ARG"
+      - name: Upload comment mention artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: comment-mentions-artifacts
+          if-no-files-found: ignore
+          path: |
+            artifacts/comment-mentions/**
+            source-repo/artifacts/comment-mentions/**
