@@ -4,8 +4,8 @@ run-name: >-
   ${{ inputs.site || 'all sites' }}${{ inputs.post_slug != '' && format(' | {0}', inputs.post_slug) || '' }}
 
 on:
-  schedule:
-    - cron: "*/15 * * * *"
+  # schedule:
+  #   - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       command:
