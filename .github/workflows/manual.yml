@@ -66,7 +66,7 @@ on:
           - repo
           - contributor
       orchestration_id:
-        description: "Internal resume token for checkpointed workflow continuation."
+        description: "Resume a failed or incomplete checkpointed orchestration by id."
         required: false
         type: string
       source_repo_ref:
@@ -140,22 +140,23 @@ jobs:
     env:
       SOURCE_REPO: ${{ secrets.SOURCE_REPO }}
       SOURCE_REPO_REF: ${{ inputs.source_repo_ref || vars.SOURCE_REPO_REF }}
+      SOURCE_REPO_REF_INPUT: ${{ inputs.source_repo_ref }}
       WORKFLOW_TARGET_SCOPE_VALUE_SECRET: ${{ secrets.WORKFLOW_TARGET_SCOPE_VALUE }}
     steps:
       - uses: actions/checkout@v4
       - name: Checkout source repository
-        if: ${{ env.SOURCE_REPO != '' && env.SOURCE_REPO != github.repository && env.SOURCE_REPO_REF == '' }}
+        if: ${{ env.SOURCE_REPO != '' && env.SOURCE_REPO != github.repository && ((inputs.command == 'republish' && env.SOURCE_REPO_REF_INPUT == '') || (inputs.command != 'republish' && env.SOURCE_REPO_REF == '')) }}
         uses: actions/checkout@v4
         with:
           repository: ${{ env.SOURCE_REPO }}
           token: ${{ secrets.SOURCE_REPO_PAT }}
           path: source-repo
       - name: Checkout source repository at explicit ref
-        if: ${{ env.SOURCE_REPO != '' && env.SOURCE_REPO != github.repository && env.SOURCE_REPO_REF != '' }}
+        if: ${{ env.SOURCE_REPO != '' && env.SOURCE_REPO != github.repository && ((inputs.command == 'republish' && env.SOURCE_REPO_REF_INPUT != '') || (inputs.command != 'republish' && env.SOURCE_REPO_REF != '')) }}
         uses: actions/checkout@v4
         with:
           repository: ${{ env.SOURCE_REPO }}
-          ref: ${{ env.SOURCE_REPO_REF }}
+          ref: ${{ inputs.command == 'republish' && env.SOURCE_REPO_REF_INPUT || env.SOURCE_REPO_REF }}
           token: ${{ secrets.SOURCE_REPO_PAT }}
           path: source-repo
       - name: Resolve app directory
