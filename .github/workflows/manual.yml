@@ -70,7 +70,7 @@ on:
         required: false
         type: string
       source_repo_ref:
-        description: "Optional source repo branch or ref override. Falls back to SOURCE_REPO_REF variable when omitted."
+        description: "Optional source repo branch or ref override. When omitted, run/preview/publish prefer SOURCE_REPO_REF and republish uses the source repo default branch."
         required: false
         type: string
       target_site:
@@ -145,20 +145,57 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Checkout source repository
-        if: ${{ env.SOURCE_REPO != '' && env.SOURCE_REPO != github.repository && ((inputs.command == 'republish' && env.SOURCE_REPO_REF_INPUT == '') || (inputs.command != 'republish' && env.SOURCE_REPO_REF == '')) }}
+        if: ${{ env.SOURCE_REPO != '' && env.SOURCE_REPO != github.repository }}
         uses: actions/checkout@v4
         with:
           repository: ${{ env.SOURCE_REPO }}
           token: ${{ secrets.SOURCE_REPO_PAT }}
           path: source-repo
-      - name: Checkout source repository at explicit ref
-        if: ${{ env.SOURCE_REPO != '' && env.SOURCE_REPO != github.repository && ((inputs.command == 'republish' && env.SOURCE_REPO_REF_INPUT != '') || (inputs.command != 'republish' && env.SOURCE_REPO_REF != '')) }}
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.SOURCE_REPO }}
-          ref: ${{ inputs.command == 'republish' && env.SOURCE_REPO_REF_INPUT || env.SOURCE_REPO_REF }}
-          token: ${{ secrets.SOURCE_REPO_PAT }}
-          path: source-repo
+      - name: Resolve source repository ref
+        shell: bash
+        env:
+          REQUESTED_SOURCE_REPO_REF: ${{ inputs.command == 'republish' && env.SOURCE_REPO_REF_INPUT || (inputs.command != 'republish' && env.SOURCE_REPO_REF || '') }}
+          SOURCE_REPO_REF_IS_EXPLICIT_INPUT: ${{ env.SOURCE_REPO_REF_INPUT != '' }}
+        run: |
+          APP_CHECKOUT_DIR="."
+          if [ -n "$SOURCE_REPO" ] && [ "$SOURCE_REPO" != "${{ github.repository }}" ]; then
+            APP_CHECKOUT_DIR="source-repo"
+          fi
+
+          cd "$APP_CHECKOUT_DIR"
+
+          current_branch() {
+            git symbolic-ref --quiet --short HEAD 2>/dev/null \
+              || git remote show origin 2>/dev/null | sed -n '/HEAD branch/s/.*: //p' | head -n 1
+          }
+
+          DEFAULT_REF="$(current_branch)"
+          if [ -z "$DEFAULT_REF" ]; then
+            echo "Could not determine the current source repository default branch."
+            exit 1
+          fi
+
+          REQUESTED_REF="$REQUESTED_SOURCE_REPO_REF"
+          if [ -z "$REQUESTED_REF" ]; then
+            echo "SOURCE_REPO_REF=$DEFAULT_REF" >> "$GITHUB_ENV"
+            echo "Using source repository default branch: $DEFAULT_REF"
+            exit 0
+          fi
+
+          if git fetch --depth=1 origin "$REQUESTED_REF" >/dev/null 2>&1; then
+            git checkout --force FETCH_HEAD >/dev/null 2>&1
+            echo "SOURCE_REPO_REF=$REQUESTED_REF" >> "$GITHUB_ENV"
+            echo "Checked out requested source repository ref: $REQUESTED_REF"
+            exit 0
+          fi
+
+          if [ "$SOURCE_REPO_REF_IS_EXPLICIT_INPUT" = "true" ]; then
+            echo "Requested source_repo_ref '$REQUESTED_REF' could not be fetched from the source repository."
+            exit 1
+          fi
+
+          echo "Repo-level SOURCE_REPO_REF '$REQUESTED_REF' is unavailable; falling back to source repository default branch '$DEFAULT_REF'."
+          echo "SOURCE_REPO_REF=$DEFAULT_REF" >> "$GITHUB_ENV"
       - name: Resolve app directory
         shell: bash
         env:
