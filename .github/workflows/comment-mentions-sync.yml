@@ -46,6 +46,10 @@ on:
         default: true
         type: boolean
 
+concurrency:
+  group: comment-mentions-sync
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
