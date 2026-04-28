@@ -609,6 +609,54 @@ jobs:
           fi
 
           echo "Executing: $CMD"
+          WORKFLOW_TIMEOUT_MINUTES="${{ vars.WORKFLOW_TIMEOUT_MINUTES || '360' }}"
+          AGENT_TIMEOUT_MINUTES="${{ vars.WORKFLOW_AGENT_TIMEOUT_MINUTES || '' }}"
+          case "$WORKFLOW_TIMEOUT_MINUTES" in ''|*[!0-9]*) WORKFLOW_TIMEOUT_MINUTES=360 ;; esac
+          if [ -z "$AGENT_TIMEOUT_MINUTES" ]; then
+            AGENT_TIMEOUT_MINUTES=$(( WORKFLOW_TIMEOUT_MINUTES - 30 ))
+          fi
+          case "$AGENT_TIMEOUT_MINUTES" in ''|*[!0-9]*) AGENT_TIMEOUT_MINUTES=330 ;; esac
+          if [ "$AGENT_TIMEOUT_MINUTES" -lt 1 ]; then
+            AGENT_TIMEOUT_MINUTES=330
+          fi
+          echo "Agent timeout budget: ${AGENT_TIMEOUT_MINUTES}m before GitHub job timeout recovery."
+          set +e
+          timeout --kill-after=60s "${AGENT_TIMEOUT_MINUTES}m" bash -lc "$CMD"
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -eq 124 ] || [ "$STATUS" -eq 137 ]; then
+            echo "CODEANALYZER_AGENT_TIMED_OUT=true" >> "$GITHUB_ENV"
+            echo "CodeAnalyzer agent timed out before the GitHub job limit; recovery step will pause and continue orchestration."
+            exit 124
+          fi
+          exit "$STATUS"
+      - name: Recover timed-out orchestration
+        if: ${{ failure() }}
+        shell: bash
+        env:
+          GITLAB_URL: ${{ secrets.GITLAB_URL }}
+          GITLAB_PAT: ${{ secrets.GITLAB_PAT }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_REVIEW_WORKFLOW_FILE: manual.yml
+        run: |
+          cd "$APP_DIR"
+          if [ "$CODEANALYZER_AGENT_TIMED_OUT" != "true" ]; then
+            echo "Skipping timeout recovery because the agent step did not report a controlled timeout."
+            exit 0
+          fi
+          ORCHESTRATION_ID="${EFFECTIVE_ORCHESTRATION_ID:-${CODEANALYZER_ORCHESTRATION_ID:-}}"
+          if [ -z "$ORCHESTRATION_ID" ]; then
+            echo "No orchestration id is available for timeout recovery."
+            exit 1
+          fi
+          CMD="python -u -m repo_review orchestration recover-timeout --config '$WORKFLOW_CONFIG_PATH' --orchestration-id '$ORCHESTRATION_ID' --command '${{ inputs.command }}' --kind '${{ inputs.kind }}' --mode '$EFFECTIVE_MODE' --scope '$EFFECTIVE_SCOPE'"
+          if [ -n "$EFFECTIVE_SCOPE_VALUE" ]; then CMD="$CMD --scope-value '$EFFECTIVE_SCOPE_VALUE'"; fi
+          if [ -n "$EFFECTIVE_PERIOD_LABEL" ]; then CMD="$CMD --period '$EFFECTIVE_PERIOD_LABEL'"; fi
+          if [ -n "$EFFECTIVE_START" ]; then CMD="$CMD --start '$EFFECTIVE_START'"; fi
+          if [ -n "$EFFECTIVE_END" ]; then CMD="$CMD --end '$EFFECTIVE_END'"; fi
+          echo "Executing timeout recovery: $CMD"
           eval "$CMD"
       - name: Upload artifacts
         if: always()
