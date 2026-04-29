@@ -5,7 +5,7 @@ run-name: >-
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "*/20 * * * *"
   workflow_dispatch:
     inputs:
       command:
@@ -173,6 +173,10 @@ jobs:
           COMMENT_ID_ARG=""
           SINCE_ARG=""
           LIMIT_ARG=""
+          SCHEDULED_ARG=""
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            SCHEDULED_ARG="--scheduled"
+          fi
           if [ -n "${{ inputs.site }}" ]; then
             SITE_ARG="--site '${{ inputs.site }}'"
           fi
@@ -191,7 +195,7 @@ jobs:
           if [ "$COMMAND" = "backfill-provenance" ]; then
             eval "python -u -m repo_review comments backfill-provenance --config config.yaml $SITE_ARG $POST_SLUG_ARG $SINCE_ARG $LIMIT_ARG"
           else
-            eval "python -u -m repo_review comments sync --config config.yaml $PUBLISH_FLAG $SITE_ARG $POST_SLUG_ARG $COMMENT_ID_ARG $SINCE_ARG $LIMIT_ARG"
+            eval "python -u -m repo_review comments sync --config config.yaml $PUBLISH_FLAG $SCHEDULED_ARG $SITE_ARG $POST_SLUG_ARG $COMMENT_ID_ARG $SINCE_ARG $LIMIT_ARG"
           fi
       - name: Upload comment mention artifacts
         uses: actions/upload-artifact@v4
