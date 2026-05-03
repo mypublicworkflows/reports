@@ -337,6 +337,8 @@ jobs:
           WORKFLOW_WORDPRESS_API_COMMENT_ON_UPDATE_WITH_MENTIONS: ${{ vars.WORKFLOW_WORDPRESS_API_COMMENT_ON_UPDATE_WITH_MENTIONS }}
           WORKFLOW_SMTP_ENABLED: ${{ vars.WORKFLOW_SMTP_ENABLED }}
           WORKFLOW_PROJECT_MAX_ATTEMPTS: ${{ vars.WORKFLOW_PROJECT_MAX_ATTEMPTS }}
+          WORKFLOW_METRICS_ENABLED: ${{ vars.WORKFLOW_METRICS_ENABLED }}
+          WORKFLOW_METRICS_ENDPOINT: ${{ vars.WORKFLOW_METRICS_ENDPOINT }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |
@@ -457,6 +459,21 @@ jobs:
               },
               "mailjet": {
                   "enabled": False,
+              },
+              "metrics": {
+                  "enabled": as_bool("WORKFLOW_METRICS_ENABLED", False),
+                  "endpoint": os.getenv("WORKFLOW_METRICS_ENDPOINT", "").strip()
+                      or "https://script.google.com/macros/s/AKfycbyCHwElrM6RcYLi0JNQAkJmzGrBjAhf28mKXVyub_6SdaZ2ITvzCwfM5xCLE7rmuxio/exec",
+                  "token_env": "METRICS_API_TOKEN",
+                  "agent_name": "CodeAnalyzer",
+                  "agent_owner": "Salman Sarfraz",
+                  "job_type": "Repository Intelligence Report",
+                  "product": "NA",
+                  "platform": "NA",
+                  "website": "NA",
+                  "website_section": "NA",
+                  "item_name": "auto",
+                  "fail_on_error": False,
               },
               "llm": {
                   "enabled": as_bool("WORKFLOW_LLM_ENABLED", False),
@@ -580,6 +597,7 @@ jobs:
           PROFESSIONALIZE_BASE_URL: ${{ secrets.PROFESSIONALIZE_BASE_URL }}
           PROFESSIONALIZE_LLM_MODEL: ${{ vars.PROFESSIONALIZE_LLM_MODEL }}
           PROFESSIONALIZE_EMBEDDING_MODEL: ${{ vars.PROFESSIONALIZE_EMBEDDING_MODEL }}
+          METRICS_API_TOKEN: ${{ secrets.METRICS_API_TOKEN }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
