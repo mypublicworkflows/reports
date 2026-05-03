@@ -4,8 +4,8 @@ run-name: >-
   ${{ inputs.site || 'all sites' }}${{ inputs.post_slug != '' && format(' | {0}', inputs.post_slug) || '' }}
 
 on:
-  schedule:
-    - cron: "*/20 * * * *"
+  #schedule:
+  #  - cron: "*/20 * * * *"
   workflow_dispatch:
     inputs:
       command:
@@ -75,6 +75,7 @@ jobs:
       PROFESSIONALIZE_EMBEDDING_MODEL: ${{ vars.PROFESSIONALIZE_EMBEDDING_MODEL }}
       TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
       TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+      CODEANALYZER_RUNTIME_PROFILE: github_actions
       GITHUB_PAT: ${{ secrets.GITHUB_PAT }}
     steps:
       - uses: actions/checkout@v4
