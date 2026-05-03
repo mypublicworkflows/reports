@@ -336,6 +336,7 @@ jobs:
           WORKFLOW_WORDPRESS_DEFAULT_STATUS: ${{ vars.WORKFLOW_WORDPRESS_DEFAULT_STATUS }}
           WORKFLOW_WORDPRESS_API_COMMENT_ON_UPDATE_WITH_MENTIONS: ${{ vars.WORKFLOW_WORDPRESS_API_COMMENT_ON_UPDATE_WITH_MENTIONS }}
           WORKFLOW_SMTP_ENABLED: ${{ vars.WORKFLOW_SMTP_ENABLED }}
+          WORKFLOW_PROJECT_MAX_ATTEMPTS: ${{ vars.WORKFLOW_PROJECT_MAX_ATTEMPTS }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |
@@ -358,6 +359,9 @@ jobs:
               return int(value)
 
           data = {
+              "runtime": {
+                  "profile": "github_actions",
+              },
               "gitlab": {
                   "base_url": os.getenv("GITLAB_URL", "").strip() or None,
                   "pat_env": "GITLAB_PAT",
@@ -474,6 +478,7 @@ jobs:
               "orchestration": {
                   "enabled": True,
                   "deadline_buffer_seconds": 1200,
+                  "project_max_attempts": as_int("WORKFLOW_PROJECT_MAX_ATTEMPTS", 3),
               },
           }
 
@@ -630,11 +635,11 @@ jobs:
             touch "$TIMEOUT_MARKER"
             echo "CODEANALYZER_AGENT_TIMED_OUT=true" >> "$GITHUB_ENV"
             echo "CodeAnalyzer agent timed out before the GitHub job limit; recovery step will pause and continue orchestration."
-            exit 124
+            exit 0
           fi
           exit "$STATUS"
       - name: Recover timed-out orchestration
-        if: ${{ failure() }}
+        if: ${{ always() }}
         shell: bash
         env:
           GITLAB_URL: ${{ secrets.GITLAB_URL }}
