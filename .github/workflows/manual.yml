@@ -64,6 +64,7 @@ on:
           - group
           - executive
           - repo
+          - progress
           - contributor
       orchestration_id:
         description: "Resume a failed or incomplete checkpointed orchestration by id."
@@ -296,9 +297,9 @@ jobs:
           fi
 
           case "$KIND" in
-            rankings|group|executive|repo|contributor|"") ;;
+            rankings|group|executive|repo|progress|contributor|"") ;;
             *)
-              echo "kind must be one of: rankings, group, executive, repo, contributor."
+              echo "kind must be one of: rankings, group, executive, repo, progress, contributor."
               exit 1
               ;;
           esac
@@ -421,6 +422,7 @@ jobs:
                   "category_by_report_type": {
                       "contributor_report": "Contributor Review",
                       "repository_report": "Repository Report",
+                      "repository_progress_report": "Repository Progress Report",
                       "group_summary": "Monthly Report",
                       "executive_summary": "Executive Summary",
                       "rankings_report": "Rankings",
