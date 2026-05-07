@@ -44,6 +44,7 @@ on:
           - group
           - executive
           - repo
+          - progress
           - contributor
       target_site:
         description: "Optional WordPress site override for publish or republish"
