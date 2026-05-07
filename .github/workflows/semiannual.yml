@@ -1,75 +1,26 @@
-name: Semiannual Repo Review
-run-name: >-
-  ${{ github.event_name == 'workflow_dispatch'
-      && format('{0} {1} | {2}{3} | semiannual', inputs.command, inputs.kind, inputs.scope, inputs.scope_value != '' && format(':{0}', inputs.scope_value) || '')
-      || 'run rankings | all | semiannual' }}
+name: Semiannual Sialkot Rankings
+run-name: publish rankings | super-group:sialkot | semiannual
 
 on:
-  #schedule:
-  #  - cron: "0 3 1 1,7 *"
+  schedule:
+    - cron: "0 3 5 1,7 *"
   workflow_dispatch:
-    inputs:
-      command:
-        description: "Workflow action override for manual dispatch"
-        required: true
-        default: run
-        type: choice
-        options:
-          - run
-          - preview
-          - publish
-          - republish
-      scope:
-        description: "Scope override for manual dispatch"
-        required: true
-        default: all
-        type: choice
-        options:
-          - all
-          - super-group
-          - group
-          - subgroup
-          - repo
-      scope_value:
-        description: "Scope value for non-all scopes during manual dispatch"
-        required: false
-        type: string
-      kind:
-        description: "Report kind for preview or publish during manual dispatch"
-        required: true
-        default: rankings
-        type: choice
-        options:
-          - rankings
-          - group
-          - executive
-          - repo
-          - progress
-          - contributor
-      target_site:
-        description: "Optional WordPress site override for publish or republish"
-        required: false
-        type: string
-      target_category:
-        description: "Optional category override for publish or republish"
-        required: false
-        type: string
-      notify_on_update_comments:
-        description: "When true, existing-post WordPress API updates can add one FYI comment."
-        required: true
-        default: true
-        type: boolean
+
+concurrency:
+  group: sialkot-semiannual-rankings
+  cancel-in-progress: false
 
 jobs:
   run:
     uses: ./.github/workflows/manual.yml
     with:
-      command: ${{ github.event_name == 'workflow_dispatch' && inputs.command || 'run' }}
+      command: publish
       mode: semiannual
-      scope: ${{ github.event_name == 'workflow_dispatch' && inputs.scope || 'all' }}
-      scope_value: ${{ github.event_name == 'workflow_dispatch' && inputs.scope_value || '' }}
-      kind: ${{ github.event_name == 'workflow_dispatch' && inputs.kind || 'rankings' }}
-      target_site: ${{ github.event_name == 'workflow_dispatch' && inputs.target_site || '' }}
-      target_category: ${{ github.event_name == 'workflow_dispatch' && inputs.target_category || '' }}
-      notify_on_update_comments: ${{ github.event_name == 'workflow_dispatch' && inputs.notify_on_update_comments || true }}
+      scope: super-group
+      scope_value: sialkot
+      kind: rankings
+      source_repo_ref: master
+      target_site: professionalizeagents.wordpress.com
+      target_category: sialkot-agents
+      notify_on_update_comments: false
     secrets: inherit
