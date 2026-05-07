@@ -481,6 +481,7 @@ jobs:
                   "enabled": as_bool("WORKFLOW_LLM_ENABLED", False),
                   "provider": "professionalize",
                   "base_url_env": "PROFESSIONALIZE_BASE_URL",
+                  "preferred_api_key_env": "PROFESSIONALIZE_API_PERSONAL_KEY",
                   "api_key_env": "PROFESSIONALIZE_API_KEY",
                   "model_env": "PROFESSIONALIZE_LLM_MODEL",
               },
@@ -488,6 +489,7 @@ jobs:
                   "enabled": False,
                   "provider": "professionalize",
                   "base_url_env": "PROFESSIONALIZE_BASE_URL",
+                  "preferred_api_key_env": "PROFESSIONALIZE_API_PERSONAL_KEY",
                   "api_key_env": "PROFESSIONALIZE_API_KEY",
                   "model_env": "PROFESSIONALIZE_EMBEDDING_MODEL",
               },
@@ -595,6 +597,7 @@ jobs:
           SMTP_FROM_NAME: ${{ secrets.SMTP_FROM_NAME }}
           SMTP_STARTTLS: ${{ vars.SMTP_STARTTLS }}
           SMTP_SSL: ${{ vars.SMTP_SSL }}
+          PROFESSIONALIZE_API_PERSONAL_KEY: ${{ secrets.PROFESSIONALIZE_API_PERSONAL_KEY }}
           PROFESSIONALIZE_API_KEY: ${{ secrets.PROFESSIONALIZE_API_KEY }}
           PROFESSIONALIZE_BASE_URL: ${{ secrets.PROFESSIONALIZE_BASE_URL }}
           PROFESSIONALIZE_LLM_MODEL: ${{ vars.PROFESSIONALIZE_LLM_MODEL }}
