@@ -66,6 +66,15 @@ on:
           - repo
           - progress
           - contributor
+      compact_rankings_details:
+        description: "Rankings/group detail level: config uses config.yaml; compact omits embedded repo details; detailed embeds full repo sections."
+        required: true
+        default: config
+        type: choice
+        options:
+          - config
+          - compact
+          - detailed
       orchestration_id:
         description: "Resume a failed or incomplete checkpointed orchestration by id."
         required: false
@@ -112,6 +121,10 @@ on:
         type: string
       kind:
         required: false
+        type: string
+      compact_rankings_details:
+        required: false
+        default: config
         type: string
       orchestration_id:
         required: false
@@ -239,6 +252,7 @@ jobs:
           END="${{ inputs.end }}"
           PERIOD_LABEL_INPUT="${{ inputs.period_label }}"
           KIND="${{ inputs.kind }}"
+          COMPACT_RANKINGS_DETAILS="${{ inputs.compact_rankings_details }}"
           ORCHESTRATION_ID="${{ inputs.orchestration_id }}"
           TARGET_SITE_INPUT="${{ inputs.target_site }}"
           TARGET_CATEGORY_INPUT="${{ inputs.target_category }}"
@@ -304,6 +318,17 @@ jobs:
               ;;
           esac
 
+          if [ -z "$COMPACT_RANKINGS_DETAILS" ]; then
+            COMPACT_RANKINGS_DETAILS="config"
+          fi
+          case "$COMPACT_RANKINGS_DETAILS" in
+            config|compact|detailed) ;;
+            *)
+              echo "compact_rankings_details must be one of: config, compact, detailed."
+              exit 1
+              ;;
+          esac
+
           echo "EFFECTIVE_MODE=$MODE" >> "$GITHUB_ENV"
           echo "EFFECTIVE_SCOPE=$SCOPE" >> "$GITHUB_ENV"
           echo "EFFECTIVE_SCOPE_VALUE=$SCOPE_VALUE" >> "$GITHUB_ENV"
@@ -311,6 +336,7 @@ jobs:
           echo "EFFECTIVE_START=$START" >> "$GITHUB_ENV"
           echo "EFFECTIVE_END=$END" >> "$GITHUB_ENV"
           echo "EFFECTIVE_DATE_BASIS=$DATE_BASIS" >> "$GITHUB_ENV"
+          echo "EFFECTIVE_COMPACT_RANKINGS_DETAILS=$COMPACT_RANKINGS_DETAILS" >> "$GITHUB_ENV"
           echo "EFFECTIVE_ORCHESTRATION_ID=$ORCHESTRATION_ID" >> "$GITHUB_ENV"
           echo "EFFECTIVE_TARGET_SITE=$TARGET_SITE_INPUT" >> "$GITHUB_ENV"
           echo "EFFECTIVE_TARGET_CATEGORY=$TARGET_CATEGORY_INPUT" >> "$GITHUB_ENV"
@@ -343,11 +369,24 @@ jobs:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |
+          cd "$APP_DIR"
           export WORKFLOW_CONFIG_PATH="$RUNNER_TEMP/repo-review-actions.yaml"
           python - <<'PY'
           import os
           from pathlib import Path
           import yaml
+
+          def deep_merge(base: dict, overlay: dict) -> dict:
+              merged = dict(base)
+              for key, value in overlay.items():
+                  if (
+                      isinstance(value, dict)
+                      and isinstance(merged.get(key), dict)
+                  ):
+                      merged[key] = deep_merge(merged[key], value)
+                  else:
+                      merged[key] = value
+              return merged
 
           def as_bool(name: str, default: bool) -> bool:
               value = os.getenv(name, "").strip().lower()
@@ -361,15 +400,44 @@ jobs:
                   return default
               return int(value)
 
-          data = {
+          base_config_path = Path("config.yaml")
+          if base_config_path.exists():
+              loaded = yaml.safe_load(base_config_path.read_text(encoding="utf-8")) or {}
+              if not isinstance(loaded, dict):
+                  raise ValueError("config.yaml must contain a YAML mapping.")
+              base_config = loaded
+              print(f"Loaded base workflow config from {base_config_path}")
+          else:
+              base_config = {}
+              print("No config.yaml found; using workflow defaults only.")
+
+          reports_config = {
+              "output_dir": "artifacts",
+              "save_html": True,
+              "save_json": True,
+              "save_csv": True,
+              "include_confidence_notes": True,
+              "include_fairness_notes": True,
+          }
+          compact_rankings_details = os.getenv("EFFECTIVE_COMPACT_RANKINGS_DETAILS", "config").strip()
+          if compact_rankings_details == "compact":
+              reports_config["compact_rankings_details"] = True
+          elif compact_rankings_details == "detailed":
+              reports_config["compact_rankings_details"] = False
+
+          gitlab_config = {
+              "pat_env": "GITLAB_PAT",
+              "include_merge_requests": True,
+          }
+          gitlab_url = os.getenv("GITLAB_URL", "").strip()
+          if gitlab_url:
+              gitlab_config["base_url"] = gitlab_url
+
+          overlay = {
               "runtime": {
                   "profile": "github_actions",
               },
-              "gitlab": {
-                  "base_url": os.getenv("GITLAB_URL", "").strip() or None,
-                  "pat_env": "GITLAB_PAT",
-                  "include_merge_requests": True,
-              },
+              "gitlab": gitlab_config,
               "target": {
                   "mode": os.getenv("EFFECTIVE_MODE", "monthly"),
                   "scope": os.getenv("EFFECTIVE_SCOPE", "all"),
@@ -383,29 +451,13 @@ jobs:
               "analysis": {
                   "default_date_basis": os.getenv("EFFECTIVE_DATE_BASIS", "authored_date"),
                   "default_timezone": "Asia/Karachi",
-                  "category_detection": "hybrid",
-                  "classify_unknown_as": "automation_script",
-                  "weights_profile": "default",
                   "include_mr_analysis": True,
                   "include_repo_snapshot_analysis": True,
                   "max_run_seconds": 0,
                   "max_project_seconds": 0,
                   "max_semantic_review_seconds": 0,
               },
-              "reports": {
-                  "output_dir": "artifacts",
-                  "save_html": True,
-                  "save_json": True,
-                  "save_csv": True,
-                  "include_confidence_notes": True,
-                  "include_fairness_notes": True,
-              },
-              "rankings": {
-                  "enable_overall": True,
-                  "enable_category": True,
-                  "enable_improvement": True,
-                  "enable_watchlist": True,
-              },
+              "reports": reports_config,
               "publishing": {
                   "backend": os.getenv("EFFECTIVE_PUBLISHING_BACKEND", "").strip() or "wordpress_email",
               },
@@ -414,19 +466,6 @@ jobs:
                   "email_target_env": "WORDPRESS_POST_EMAIL",
                   "default_status": os.getenv("WORKFLOW_WORDPRESS_DEFAULT_STATUS", "").strip() or "private",
                   "preview_only": as_bool("WORKFLOW_WORDPRESS_PREVIEW_ONLY", True),
-                  "default_publish_report_types": [
-                      "executive_summary",
-                      "group_summary",
-                      "rankings_report",
-                  ],
-                  "category_by_report_type": {
-                      "contributor_report": "Contributor Review",
-                      "repository_report": "Repository Report",
-                      "repository_progress_report": "Repository Progress Report",
-                      "group_summary": "Monthly Report",
-                      "executive_summary": "Executive Summary",
-                      "rankings_report": "Rankings",
-                  },
               },
               "wordpress_api": {
                   "enabled": True,
@@ -503,9 +542,10 @@ jobs:
               },
           }
 
+          data = deep_merge(base_config, overlay)
           output_path = Path(os.environ["WORKFLOW_CONFIG_PATH"])
           output_path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-          print(f"Generated workflow config at {output_path}")
+          print(f"Generated merged workflow config at {output_path}")
           PY
           echo "WORKFLOW_CONFIG_PATH=$WORKFLOW_CONFIG_PATH" >> "$GITHUB_ENV"
       - name: Resolve saved run for republish
